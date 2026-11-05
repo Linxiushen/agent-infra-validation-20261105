@@ -1,0 +1,74 @@
+name: Deterministic branch cleanup integration
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions: {}
+jobs:
+  cleanup:
+    name: Cleanup signing ${{ matrix.signing }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        signing: ["false", "true"]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: Linxiushen/claude-code-action
+          ref: 6a26c53237c779ba353749f922e81f71e39ee951
+          path: .candidate-source
+          persist-credentials: false
+      - name: Keep fixture source outside the tested working-tree changes
+        run: echo '/.candidate-source/' >> .git/info/exclude
+      - name: Exercise real Action preparation without model credentials
+        id: candidate
+        continue-on-error: true
+        uses: Linxiushen/claude-code-action@6a26c53237c779ba353749f922e81f71e39ee951
+        with:
+          github_token: ${{ github.token }}
+          prompt: Synthetic cleanup authentication smoke; no model should execute.
+          path_to_claude_code_executable: /bin/false
+          use_commit_signing: ${{ matrix.signing }}
+          claude_args: --permission-mode auto
+          classify_inline_comments: "false"
+          display_report: "false"
+      - name: Assert expected failure and run authenticated cleanup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTION_OUTCOME: ${{ steps.candidate.outcome }}
+          SIGNING: ${{ matrix.signing }}
+        run: |
+          test "$ACTION_OUTCOME" = failure
+          bun install --cwd .candidate-source --production --frozen-lockfile
+          bun run .github/scripts/cleanup-smoke.ts
+      - name: Preserve deterministic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cleanup-signing-${{ matrix.signing }}
+          path: ${{ runner.temp }}/cleanup-evidence-${{ matrix.signing }}.json
+          if-no-files-found: error
+          retention-days: 7
+  verify-failure-path:
+    needs: cleanup
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Assert exact no-provider failure from completed job logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/verify-failure-path.cjs
