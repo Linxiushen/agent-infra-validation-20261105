@@ -1,7 +1,5 @@
 name: Deterministic branch cleanup integration
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions: {}
 jobs:
