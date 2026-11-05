@@ -1,0 +1,18 @@
+name: Read-only existing cleanup verification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify-existing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Verify the completed cleanup jobs without rerunning mutations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/verify-existing-run.cjs
